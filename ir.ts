@@ -2,11 +2,6 @@
 import {None, Optional, Some} from './option';
 
 
-// 工厂函数，用于创建 Some 或 None
-function optional<T>(value: T|null|undefined): Optional<T> {
-  return value === null || value === undefined ? new None() : new Some(value);
-}
-
 
 interface ilist_node_i<T> {
   getPrev(): Optional<T>;
@@ -73,6 +68,113 @@ class ilist<T extends ilist_node_parent_i<T, P>, P> {
     this.head.map((n) => n.setPrev(new Some(node)));
     this.head = new Some(node);
     this.len += 1;
+  }
+  push_back(node: T) {
+    node.setPrev(this.tail);
+    this.tail.map((n) => n.setNext(new Some(node)));
+    this.tail = new Some(node);
+    this.len += 1;
+  }
+
+  pop_front(): Optional<T> {
+    if (this.head.isSome()) {
+      let head = this.head;
+      let next = head.flatMap((n) => n.getNext());
+      head.unwrap().setNext(new None());
+      next.map((n) => n.setPrev(new None()));
+      this.head = next;
+      this.len -= 1;
+      return head;
+    }
+    return new None();
+  }
+
+  pop_back(): Optional<T> {
+    if (this.tail.isSome()) {
+      let tail = this.tail;
+      let prev = tail.flatMap((n) => n.getPrev());
+      tail.map((n) => n.setPrev(new None()));
+      prev.map((n) => n.setNext(new None()));
+
+      this.tail = prev;
+      this.len -= 1;
+      return tail;
+    }
+    return new None();
+  }
+
+  /// insert val after pos
+  insert_after(pos: T, val: T) {
+    this.insert_after_pos(new Some(pos), new Some(val));
+  }
+  insert_after_pos(pos: Optional<T>, val: Optional<T>) {
+    val.map((n) => n.setParent(pos.flatMap((p) => p.getParent())));
+
+    let next = pos.flatMap((n) => n.getNext());
+    val.map((n) => n.setNext(next));
+    val.map((n) => n.setPrev(pos));
+
+    next.map((n) => n.setPrev(val));
+    pos.map((n) => n.setNext(val));
+
+    if (pos == this.tail) {
+      this.tail = val;
+    }
+
+    this.len += 1;
+  }
+
+  insert_before(pos: T, val: T) {
+    this.insert_before_pos(new Some(pos), new Some(val));
+  }
+  insert_before_pos(pos: Optional<T>, val: Optional<T>) {
+    val.map((n) => n.setParent(pos.flatMap((p) => p.getParent())));
+    let prev = pos.flatMap((n) => n.getPrev());
+
+    val.map((n) => n.setNext(pos));
+    val.map((n) => n.setPrev(prev));
+
+    prev.map((n) => n.setNext(val));
+    pos.map((n) => n.setPrev(val));
+
+    if (pos == this.head) {
+      this.head = val;
+    }
+    this.len += 1;
+  }
+
+  // remove val from linked list
+  remove(val: T) {
+    // FIXME check val is in this list
+
+    this.len -= 1;
+
+    let prev = val.getPrev();
+    let next = val.getNext();
+
+    val.setPrev(new None());
+    val.setNext(new None());
+
+    prev.map((n) => n.setNext(next));
+    next.map((n) => n.setPrev(prev));
+
+    if (val == this.head.unwrap()) {
+      this.head = next;
+    }
+
+    if (val == this.tail.unwrap()) {
+      this.tail = prev;
+    }
+  }
+
+
+
+  * [Symbol.iterator]() {
+    let current = this.head;
+    while (current) {
+      yield current;
+      current = current.flatMap((n) => n.getNext());
+    }
   }
 }
 

@@ -79,3 +79,7 @@ export class None<T> extends Optional<T> {
     return new None();
   }
 }
+// 工厂函数，用于创建 Some 或 None
+export function optional<T>(value: T|null|undefined): Optional<T> {
+  return value === null || value === undefined ? new None() : new Some(value);
+}
