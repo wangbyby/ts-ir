@@ -166,22 +166,167 @@ class ilist<T extends ilist_node_parent_i<T, P>, P> {
       this.tail = prev;
     }
   }
+}
 
 
+enum TypeID {
+  TyVoid = 'void',
+  TyInt = 'int',
+  TyFloat32 = 'f32',
+  TyFloat64 = 'f64',
+  TyPtr = 'ptr',
+  TyArray = 'arr',
+  TyFunc = 'fn',
+}
 
-  * [Symbol.iterator]() {
-    let current = this.head;
-    while (current) {
-      yield current;
-      current = current.flatMap((n) => n.getNext());
-    }
+abstract class Type {
+  protected id: TypeID;
+  protected constructor(id: TypeID) {
+    this.id = id;
+  }
+
+  abstract getBitWidth(): number;
+  abstract getAlignBytes(): number;
+}
+
+class VoidType extends Type {
+  private constructor() {
+    super(TypeID.TyVoid);
+  }
+  static getVoidType(): Type {
+    let t = new VoidType();
+    return t;
+  }
+  getBitWidth(): number {
+    return 0;
+  }
+  getAlignBytes(): number {
+    return 0;
   }
 }
 
+class IntegerType extends Type {
+  protected signed: boolean;
+  protected width_in_bits: number;
+
+  private constructor() {
+    super(TypeID.TyInt);
+    this.signed = false;
+    this.width_in_bits = 0;
+  }
+
+  getBitWidth(): number {
+    return this.width_in_bits;
+  }
+  getAlignBytes(): number {
+    return this.width_in_bits / 8;  // FIXME check int30
+  }
+}
+
+class Float32Type extends Type {
+  private constructor() {
+    super(TypeID.TyFloat32);
+  }
+
+  getBitWidth(): number {
+    return 32;
+  }
+  getAlignBytes(): number {
+    return 32;
+  }
+}
+
+class Float64Type extends Type {
+  private constructor() {
+    super(TypeID.TyFloat64);
+  }
+
+  getBitWidth(): number {
+    return 64;
+  }
+  getAlignBytes(): number {
+    return 64;
+  }
+}
+
+class PtrType extends Type {
+  private ptr_width_bits: number;
+
+  private constructor() {
+    super(TypeID.TyPtr);
+    this.ptr_width_bits = 0;  // FIXME ...target related
+  }
+
+  getBitWidth(): number {
+    return this.ptr_width_bits;
+  }
+  getAlignBytes(): number {
+    return this.ptr_width_bits;  // fixme
+  }
+}
+
+class ArrayType extends Type {
+  private element_ty: Type;
+  private len: number;
+  private constructor(ele: Type, len: number) {
+    super(TypeID.TyArray);
+    this.element_ty = ele;  // FIXME ...target related
+    this.len = len;
+  }
+
+  getBitWidth(): number {
+    return this.len * (this.element_ty.getAlignBytes() * 8);
+  }
+
+  getAlignBytes(): number {
+    return this.len * this.element_ty.getAlignBytes();
+  }
+}
+
+class FunctionType extends Type {
+  private types: Type[];
+  private constructor(ty: Type[]) {
+    super(TypeID.TyFunc);
+    this.types = ty;
+  }
+
+  getBitWidth(): number {
+    console.error('call bad function');
+    return 0;
+  }
+  getAlignBytes(): number {
+    console.error('do not call this for function type');
+    return 0;
+  }
+
+  getReturnType(): Type {
+    return this.types[this.types.length - 1];
+  }
+
+  static getFnType(ty: Type[]): FunctionType {
+    let f = new FunctionType(ty);
+    return f;
+  }
+}
+
+
+
 class Value {
   private name: string;
-  constructor(name: string) {
+  private ty: Type;
+  private uses: Value[];
+  constructor(name: string, ty: Type) {
     this.name = name;
+    this.ty = ty;
+    this.uses = [];
+  }
+
+  public getName(): string {
+    return this.name;
+  }
+
+  public getType(): Type {
+    return this.ty;
   }
 }
 
@@ -193,8 +338,8 @@ class Module {
     this.func_list = new ilist();
   }
 
-  createFunction(fname: string): Func {
-    let fn = new Func(fname);
+  createFunction(fname: string, ty: FunctionType): Func {
+    let fn = new Func(fname, ty);
     this.func_list.push_front(fn);
     fn.setParent(new Some(this));
     return fn;
@@ -204,8 +349,8 @@ class Module {
 class Func extends Value implements ilist_node_parent_i<Func, Module> {
   protected block_list: ilist<BasicBlock, Func>;
   protected node: ilist_node_parent<Func, Module>;
-  constructor(name: string) {
-    super(name);
+  constructor(name: string, ty: Type) {
+    super(name, ty);
     this.block_list = new ilist();
     this.node = new ilist_node_parent();
   }
@@ -234,8 +379,8 @@ class BasicBlock extends Value implements
   protected inst_list: ilist<Instruction, BasicBlock>;
   protected node: ilist_node_parent<BasicBlock, Func>;
 
-  constructor(name: string) {
-    super(name);
+  constructor(name: string, ty: Type) {
+    super(name, ty);
     this.inst_list = new ilist();
     this.node = new ilist_node_parent();
   }
@@ -263,8 +408,8 @@ class BasicBlock extends Value implements
 class Instruction extends Value implements
     ilist_node_parent_i<Instruction, BasicBlock> {
   protected node: ilist_node_parent<Instruction, BasicBlock>;
-  constructor(name: string) {
-    super(name);
+  constructor(name: string, ty: Type) {
+    super(name, ty);
     this.node = new ilist_node_parent();
   }
 
@@ -290,7 +435,7 @@ class Instruction extends Value implements
 
 
 let mod = new Module('test');
-let f = mod.createFunction('foo');
+let f = mod.createFunction('foo', FunctionType.getFnType([]));
 
 
 console.log(mod);
