@@ -1,85 +1,6 @@
 
-// 定义 Optional 类的抽象基类
-abstract class Optional<T> {
-  // 判断是否为 Some
-  abstract isSome(): boolean;
+import {None, Optional, Some} from './option';
 
-  // 判断是否为 None
-  abstract isNone(): boolean;
-
-  // 获取值，如果为 None 则抛出错误
-  abstract unwrap(): T;
-
-  // 获取值，如果为 None 则返回默认值
-  abstract unwrapOr(defaultValue: T): T;
-
-  // 映射值（如果为 Some）
-  abstract map<U>(fn: (value: T) => U): Optional<U>;
-
-  // 扁平化映射（如果为 Some）
-  abstract flatMap<U>(fn: (value: T) => Optional<U>): Optional<U>;
-}
-
-// Some 类，表示有值
-class Some<T> extends Optional<T> {
-  private value: T;
-
-  constructor(value: T) {
-    super();
-    this.value = value;
-  }
-
-  isSome(): boolean {
-    return true;
-  }
-
-  isNone(): boolean {
-    return false;
-  }
-
-  unwrap(): T {
-    return this.value;
-  }
-
-  unwrapOr(_defaultValue: T): T {
-    return this.value;
-  }
-
-  map<U>(fn: (value: T) => U): Optional<U> {
-    return new Some(fn(this.value));
-  }
-
-  flatMap<U>(fn: (value: T) => Optional<U>): Optional<U> {
-    return fn(this.value);
-  }
-}
-
-// None 类，表示无值
-class None<T> extends Optional<T> {
-  isSome(): boolean {
-    return false;
-  }
-
-  isNone(): boolean {
-    return true;
-  }
-
-  unwrap(): T {
-    throw new Error('Cannot unwrap a None value');
-  }
-
-  unwrapOr(defaultValue: T): T {
-    return defaultValue;
-  }
-
-  map<U>(_fn: (value: T) => U): Optional<U> {
-    return new None();
-  }
-
-  flatMap<U>(_fn: (value: T) => Optional<U>): Optional<U> {
-    return new None();
-  }
-}
 
 // 工厂函数，用于创建 Some 或 None
 function optional<T>(value: T|null|undefined): Optional<T> {
@@ -87,42 +8,59 @@ function optional<T>(value: T|null|undefined): Optional<T> {
 }
 
 
-class ilist_node<T> {
-  protected prev: Optional<ilist_node<T>>;
-  protected next: Optional<ilist_node<T>>;
+interface ilist_node_i<T> {
+  getPrev(): Optional<T>;
+  getNext(): Optional<T>;
+  setPrev(p: Optional<T>): void;
+  setNext(n: Optional<T>): void;
+}
+
+interface ilist_node_parent_i<T, P> extends ilist_node_i<T> {
+  getParent(): Optional<P>;
+  setParent(p: Optional<P>): void;
+}
+
+class ilist_node<T> implements ilist_node_i<T> {
+  prev: Optional<T>;
+  next: Optional<T>;
+
   constructor() {
-    this.prev = new None();
     this.next = new None();
+    this.prev = new None();
   }
 
-  getPrev(): Optional<ilist_node<T>> {
+  getPrev(): Optional<T> {
     return this.prev;
   }
-  getNext(): Optional<ilist_node<T>> {
+  getNext(): Optional<T> {
     return this.next;
   }
-
-  setPrev(p: Optional<ilist_node<T>>) {
-    this.prev = p;
-  }
-  setNext(n: Optional<ilist_node<T>>) {
+  setNext(n: Optional<T>): void {
     this.next = n;
   }
-}
-
-interface HasParent<P> {
-  getParent(): Optional<P>;
-}
-
-class ilist_node_parent<T, P> extends ilist_node<T> {
-  constructor() {
-    super();
+  setPrev(p: Optional<T>): void {
+    this.prev = p;
   }
 }
 
-class ilist<T, P> {
-  private head: Optional<ilist_node_parent<T, P>>;
-  private tail: Optional<ilist_node_parent<T, P>>;
+class ilist_node_parent<T, P> extends ilist_node<T> implements
+    ilist_node_parent_i<T, P> {
+  protected parent: Optional<P>;
+  constructor() {
+    super();
+    this.parent = new None();
+  }
+  getParent(): Optional<P> {
+    return this.parent;
+  }
+  setParent(p: Optional<P>) {
+    this.parent = p;
+  }
+}
+
+class ilist<T extends ilist_node_parent_i<T, P>, P> {
+  private head: Optional<T>;
+  private tail: Optional<T>;
   private len: number;
   constructor() {
     this.head = new None();
@@ -130,28 +68,128 @@ class ilist<T, P> {
     this.len = 0;
   }
 
-  push_front(node: ilist_node_parent<T, P>) {
+  push_front(node: T) {
     node.setNext(this.head);
-    this.head.map((n) => node.setPrev(optional(node)));
+    this.head.map((n) => n.setPrev(new Some(node)));
+    this.head = new Some(node);
     this.len += 1;
-    this.head = optional(node);
   }
 }
 
-class Value{
-    private name: string;
-    constructor(name: string){
-        this.name = name;
-    }
+class Value {
+  private name: string;
+  constructor(name: string) {
+    this.name = name;
+  }
 }
 
-class BasicBlock extends Value{
+class Module {
+  protected func_list: ilist<Func, Module>;
+  protected module_name: string;
+  constructor(name: string) {
+    this.module_name = name;
+    this.func_list = new ilist();
+  }
 
+  createFunction(fname: string): Func {
+    let fn = new Func(fname);
+    this.func_list.push_front(fn);
+    fn.setParent(new Some(this));
+    return fn;
+  }
 }
 
-class Instruction extends Value, ilist_node_parent<Instruction, BasicBlock>  {
+class Func extends Value implements ilist_node_parent_i<Func, Module> {
+  protected block_list: ilist<BasicBlock, Func>;
+  protected node: ilist_node_parent<Func, Module>;
+  constructor(name: string) {
+    super(name);
+    this.block_list = new ilist();
+    this.node = new ilist_node_parent();
+  }
+  getParent(): Optional<Module> {
+    return this.node.getParent();
+  }
+  setParent(p: Optional<Module>): void {
+    this.node.setParent(p);
+  }
+  getNext(): Optional<Func> {
+    return this.node.getNext();
+  }
+  getPrev(): Optional<Func> {
+    return this.node.getPrev();
+  }
+  setNext(n: Optional<Func>): void {
+    this.node.setNext(n);
+  }
+  setPrev(p: Optional<Func>): void {
+    this.node.setPrev(p);
+  }
+}
 
+class BasicBlock extends Value implements
+    ilist_node_parent_i<BasicBlock, Func> {
+  protected inst_list: ilist<Instruction, BasicBlock>;
+  protected node: ilist_node_parent<BasicBlock, Func>;
+
+  constructor(name: string) {
+    super(name);
+    this.inst_list = new ilist();
+    this.node = new ilist_node_parent();
+  }
+
+  getParent(): Optional<Func> {
+    return this.node.getParent();
+  }
+  setParent(p: Optional<Func>): void {
+    this.node.setParent(p);
+  }
+  getNext(): Optional<BasicBlock> {
+    return this.node.getNext();
+  }
+  getPrev(): Optional<BasicBlock> {
+    return this.node.getPrev();
+  }
+  setNext(n: Optional<BasicBlock>): void {
+    this.node.setNext(n);
+  }
+  setPrev(p: Optional<BasicBlock>): void {
+    this.node.setPrev(p);
+  }
+}
+
+class Instruction extends Value implements
+    ilist_node_parent_i<Instruction, BasicBlock> {
+  protected node: ilist_node_parent<Instruction, BasicBlock>;
+  constructor(name: string) {
+    super(name);
+    this.node = new ilist_node_parent();
+  }
+
+  getParent(): Optional<BasicBlock> {
+    return this.node.getParent();
+  }
+  setParent(p: Optional<BasicBlock>): void {
+    this.node.setParent(p);
+  }
+  getNext(): Optional<Instruction> {
+    return this.node.getNext();
+  }
+  getPrev(): Optional<Instruction> {
+    return this.node.getPrev();
+  }
+  setNext(n: Optional<Instruction>): void {
+    this.node.setNext(n);
+  }
+  setPrev(p: Optional<Instruction>): void {
+    this.node.setPrev(p);
+  }
 }
 
 
-console.log('hello world');
+let mod = new Module('test');
+let f = mod.createFunction('foo');
+
+
+console.log(mod);
+console.log(f);
