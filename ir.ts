@@ -209,10 +209,10 @@ class IntegerType extends Type {
   protected signed: boolean;
   protected width_in_bits: number;
 
-  private constructor() {
+  private constructor(s: boolean, w: number) {
     super(TypeID.TyInt);
-    this.signed = false;
-    this.width_in_bits = 0;
+    this.signed = s;
+    this.width_in_bits = w;
   }
 
   getBitWidth(): number {
@@ -220,6 +220,10 @@ class IntegerType extends Type {
   }
   getAlignBytes(): number {
     return this.width_in_bits / 8;  // FIXME check int30
+  }
+
+  public static getBoolType(): IntegerType {
+    return new IntegerType(false, 1);
   }
 }
 
@@ -250,10 +254,12 @@ class Float64Type extends Type {
 }
 
 class PtrType extends Type {
+  private ele_ty: Type;
   private ptr_width_bits: number;
 
-  private constructor() {
+  private constructor(ty: Type) {
     super(TypeID.TyPtr);
+    this.ele_ty = ty;
     this.ptr_width_bits = 0;  // FIXME ...target related
   }
 
@@ -261,7 +267,11 @@ class PtrType extends Type {
     return this.ptr_width_bits;
   }
   getAlignBytes(): number {
-    return this.ptr_width_bits;  // fixme
+    return this.ptr_width_bits;  // FIXME
+  }
+
+  public static createPtrTy(ele: Type): PtrType {
+    return new PtrType(ele);
   }
 }
 
@@ -430,6 +440,199 @@ class Instruction extends Value implements
   }
   setPrev(p: Optional<Instruction>): void {
     this.node.setPrev(p);
+  }
+
+  getOperands(): Value[] {
+    return [];
+  }
+}
+
+class UnaryInstruction extends Instruction {
+  protected op: Value;
+  constructor(name: string, ty: Type, op: Value) {
+    super(name, ty);
+    this.op = op;
+  }
+}
+
+class BinaryInstruction extends Instruction {
+  protected op0: Value;
+  protected op1: Value;
+  constructor(name: string, ty: Type, op0: Value, op1: Value) {
+    super(name, ty);
+    this.op0 = op0;
+    this.op1 = op1;
+  }
+}
+
+
+enum CmpPredict {
+
+  I_CMP_BEGIN,
+  I_EQ,
+  I_NQ,
+  I_UGT,
+  I_ULT,
+  I_UGE,
+  I_ULE,
+  I_SGT,
+  I_SLT,
+  I_SGE,
+  I_SLE,
+  I_CMP_END,
+
+  F_CMP_BEGIN,
+  // TODO
+  F_CMP_END,
+
+}
+
+namespace CmpPredict {
+  export function isValidICmp(p: CmpPredict): boolean {
+    return p > CmpPredict.I_CMP_BEGIN && p < CmpPredict.I_CMP_END;
+  }
+  export function isValidFCmp(p: CmpPredict): boolean {
+    return p > CmpPredict.F_CMP_BEGIN && p < CmpPredict.F_CMP_END;
+  }
+}
+
+class CmpInst extends Instruction {
+  protected predict: CmpPredict;
+  constructor(name: string, p: CmpPredict) {
+    super(name, IntegerType.getBoolType());
+    this.predict = p;
+  }
+
+}
+
+class ICmpInst extends CmpInst {
+  protected a: Value;
+  protected b: Value;
+
+  constructor(name: string, p: CmpPredict, a: Value, b: Value) {
+    super(name, p);
+    this.a = a;
+    this.b = b;
+  }
+}
+
+class FCmpInst extends CmpInst {}
+
+class AllocInstruction extends Instruction {
+  protected ele_num: Optional<Value>;
+  protected ele_ty: Type;
+  constructor(name: string, ele_num: Optional<Value>, ele_ty: Type) {
+    super(name, PtrType.createPtrTy(ele_ty));
+    this.ele_num = ele_num;
+    this.ele_ty = ele_ty;
+  }
+}
+
+class LoadInstruction extends Instruction {
+  protected address: Value;
+  constructor(name: string, ty: Type, address: Value) {
+    super(name, ty);
+    this.address = address;
+  }
+}
+
+class StoreInstruction extends Instruction {
+  protected val: Value;
+  protected address: Value;
+
+  constructor(name: string, ty: Type, val: Value, address: Value) {
+    super(name, ty);
+    this.val = val;
+    this.address = address;
+  }
+}
+
+class PhiInstruction extends Instruction {
+  protected incoming_vals: Value[];
+  protected incoming_blocks: BasicBlock[];
+  constructor(
+      name: string, ty: Type, incoming_vals: Value[],
+      incoming_blocks: BasicBlock[]) {
+    super(name, ty);
+    this.incoming_vals = incoming_vals;
+    this.incoming_blocks = incoming_blocks;
+  }
+}
+
+class CallInstruction extends Instruction {
+  protected fn_args: Value[];
+  constructor(name: string, ty: Type, fn_args: Value[]) {
+    super(name, ty);
+    this.fn_args = fn_args;
+  }
+}
+
+class TerminateInstruction extends Instruction {
+  getSuccessors(): BasicBlock[] {
+    return [];
+  }
+}
+
+/// jump bb.0
+class UnCondJumpInstruction extends TerminateInstruction {
+  protected tgt: BasicBlock;
+  constructor(name: string, tgt: BasicBlock) {
+    super(name, VoidType.getVoidType());
+    this.tgt = tgt;
+  }
+
+  getSuccessors(): BasicBlock[] {
+    return [this.tgt];
+  }
+}
+
+// jump cond, bb_t, bb_f
+class CondJumpInstruction extends TerminateInstruction {
+  protected cond: Value;
+  protected true_label: BasicBlock;
+  protected false_label: BasicBlock;
+  constructor(
+      name: string, cond: Value, true_label: BasicBlock,
+      false_label: BasicBlock) {
+    super(name, VoidType.getVoidType());
+    this.cond = cond;
+    this.true_label = true_label;
+    this.false_label = false_label;
+  }
+  getSuccessors(): BasicBlock[] {
+    return [this.true_label, this.false_label];
+  }
+}
+
+class ReturnInstruction extends TerminateInstruction {
+  protected val: Optional<Value>;
+  constructor(val: Optional<Value>) {
+    super('', val.map((v) => v.getType()).unwrapOr(VoidType.getVoidType()));
+    this.val = val;
+  }
+
+  getSuccessors(): BasicBlock[] {
+    return [];
+  }
+}
+
+/// switch (cond) {
+///   case 1: bb1;
+///   case 2: bb2;
+///}
+/// values: [cond,      1,   2, ... ]
+/// blocks: [default, bb1, bb2, ... ]
+class SwitchInstruction extends TerminateInstruction {
+  protected values: Value[];
+  protected blocks: BasicBlock[];
+  constructor(values: Value[], bbs: BasicBlock[]) {
+    super('', VoidType.getVoidType());
+    this.values = values;
+    this.blocks = bbs;
+  }
+
+  getSuccessors(): BasicBlock[] {
+    return this.blocks;
   }
 }
 
