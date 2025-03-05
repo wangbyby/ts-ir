@@ -358,6 +358,13 @@ class PtrType extends Type {
   getAlignBytes(): number {
     return this.ptr_width_bits;  // FIXME
   }
+
+  static getPtrType(ty: Type, c: Context): PtrType {
+    let p = new PtrType(ty, c);
+    if (c.has(p)) return p;
+    c.add(p);
+    return p;
+  }
 }
 
 class ArrayType extends Type {
@@ -397,6 +404,13 @@ class FunctionType extends Type {
   getReturnType(): Type {
     return this.types[this.types.length - 1];
   }
+
+  static getCreateFuncType(c: Context, ty: Type[]): FunctionType {
+    let fty = new FunctionType(ty, c);
+    if (c.has(fty)) return c.addFuncType(fty);
+    c.add(fty);
+    return fty;
+  }
 }
 
 class TargetInfo {}
@@ -414,7 +428,22 @@ class Context {
   add(ty: Type): void {
     this.type_set.add(ty);
   }
+  contains(ty: Type): boolean {
+    return this.type_set.has(ty);
+  }
+  has(ty: Type): boolean {
+    return this.contains(ty);
+  }
 
+  addFuncType(fty: FunctionType): FunctionType {
+    this.add(fty);
+    return fty;
+  }
+
+  getPtrType(ty: Type): PtrType {
+    let p = PtrType.getPtrType(ty, this);
+    return p;
+  }
 
   getVoidType(): VoidType {
     return VoidType.getInstance(this);
@@ -761,31 +790,32 @@ namespace CmpPredict {
 class CmpInst extends Instruction {
   protected predict: CmpPredict;
 
-  constructor(name: string, p: CmpPredict, a: Value, b: Value) {
-    super(name, , [a, b]);
+  constructor(c: Context, name: string, p: CmpPredict, a: Value, b: Value) {
+    super(name, c.getBoolType(), [a, b]);
     this.predict = p;
   }
 }
 
 class ICmpInst extends CmpInst {
-  constructor(name: string, p: CmpPredict, a: Value, b: Value) {
+  constructor(c: Context, name: string, p: CmpPredict, a: Value, b: Value) {
     if (!CmpPredict.isValidICmp(p)) throw new Error('invalid cmp predict');
-    super(name, p, a, b);
+    super(c, name, p, a, b);
   }
 }
 
 class FCmpInst extends CmpInst {
-  constructor(name: string, p: CmpPredict, a: Value, b: Value) {
+  constructor(c: Context, name: string, p: CmpPredict, a: Value, b: Value) {
     if (!CmpPredict.isValidFCmp(p)) throw new Error('invalid cmp predict');
-    super(name, p, a, b);
+    super(c, name, p, a, b);
   }
 }
 
 class AllocInstruction extends Instruction {
   protected ele_num: Optional<Value>;
   protected ele_ty: Type;
-  constructor(name: string, ele_num: Optional<Value>, ele_ty: Type) {
-    super(name, PtrType.createPtrTy(ele_ty), []);
+  constructor(
+      c: Context, name: string, ele_num: Optional<Value>, ele_ty: Type) {
+    super(name, c.getPtrType(ele_ty), []);  // TODO for array
     this.ele_num = ele_num;
     this.ele_ty = ele_ty;
   }
@@ -918,8 +948,8 @@ abstract class TerminateInstruction extends Instruction {
 
 /// jump bb.0
 class UnCondJumpInstruction extends TerminateInstruction {
-  constructor(name: string, tgt: BasicBlock) {
-    super(name, VoidType.getVoidType(), [tgt]);
+  constructor(c: Context, name: string, tgt: BasicBlock) {
+    super(name, c.getVoidType(), [tgt]);
   }
 
 
@@ -934,9 +964,9 @@ class UnCondJumpInstruction extends TerminateInstruction {
 // jump cond, bb_t, bb_f
 class CondJumpInstruction extends TerminateInstruction {
   constructor(
-      name: string, cond: Value, true_label: BasicBlock,
+      c: Context, name: string, cond: Value, true_label: BasicBlock,
       false_label: BasicBlock) {
-    super(name, VoidType.getVoidType(), [cond, true_label, false_label]);
+    super(name, c.getVoidType(), [cond, true_label, false_label]);
   }
 
   override getSuccessors(): BasicBlock[] {
@@ -945,11 +975,11 @@ class CondJumpInstruction extends TerminateInstruction {
 }
 
 class ReturnInstruction extends TerminateInstruction {
-  constructor(name: string, val: Optional<Value>) {
+  constructor(c: Context, name: string, val: Optional<Value>) {
     if (val.isSome()) {
       super(name, val.unwrap().getType(), [val.unwrap()]);
     } else {
-      super(name, VoidType.getVoidType(), []);
+      super(name, c.getVoidType(), []);
     }
   }
 
@@ -966,8 +996,8 @@ class ReturnInstruction extends TerminateInstruction {
 /// blocks: [default, bb1, bb2, ... ]
 class SwitchInstruction extends TerminateInstruction {
   protected blocks: BasicBlock[];
-  constructor(name: string, values: Value[], bbs: BasicBlock[]) {
-    super(name, VoidType.getVoidType(), values);
+  constructor(c: Context, name: string, values: Value[], bbs: BasicBlock[]) {
+    super(name, c.getVoidType(), values);
     this.blocks = bbs;
   }
 
@@ -986,7 +1016,8 @@ class SwitchInstruction extends TerminateInstruction {
 
 
 let mod = new Module('test');
-let f = mod.createFunction('foo', FunctionType.getFnType([]));
+let f = mod.createFunction(
+    'foo', FunctionType.getCreateFuncType(mod.getContext(), []));
 
 
 console.log(mod);
