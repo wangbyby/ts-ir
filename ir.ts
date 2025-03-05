@@ -1,5 +1,5 @@
 
-import {None, Optional, Some} from './option';
+import {None, optional, Optional, Some} from './option';
 
 
 
@@ -181,8 +181,11 @@ enum TypeID {
 
 abstract class Type {
   protected id: TypeID;
-  protected constructor(id: TypeID) {
+  protected context: Context;
+  protected constructor(id: TypeID, context: Context) {
     this.id = id;
+    this.context = context;
+    context.add(this);
   }
 
   abstract getBitWidth(): number;
@@ -190,27 +193,36 @@ abstract class Type {
 }
 
 class VoidType extends Type {
-  private constructor() {
-    super(TypeID.TyVoid);
+  private constructor(context: Context) {
+    super(TypeID.TyVoid, context);
   }
-  static getVoidType(): Type {
-    let t = new VoidType();
-    return t;
-  }
+
   getBitWidth(): number {
     return 0;
   }
   getAlignBytes(): number {
     return 0;
   }
+
+  static getInstance(context: Context): VoidType {
+    let t = context.getVoidType();
+    return t;
+  }
+  protected static create(context: Context): VoidType {
+    if (!VoidType.instance) {
+      VoidType.instance = new VoidType(context);
+    }
+    return VoidType.instance;
+  }
+  private static instance: VoidType;
 }
 
 class IntegerType extends Type {
   protected signed: boolean;
   protected width_in_bits: number;
 
-  private constructor(s: boolean, w: number) {
-    super(TypeID.TyInt);
+  private constructor(s: boolean, w: number, c: Context) {
+    super(TypeID.TyInt, c);
     this.signed = s;
     this.width_in_bits = w;
   }
@@ -222,14 +234,76 @@ class IntegerType extends Type {
     return this.width_in_bits / 8;  // FIXME check int30
   }
 
-  public static getBoolType(): IntegerType {
-    return new IntegerType(false, 1);
+  static getBoolType(c: Context): IntegerType {
+    if (!IntegerType.bool_ty) {
+      IntegerType.bool_ty = new IntegerType(false, 1, c);
+    }
+    return IntegerType.bool_ty;
   }
+  static getI8Type(c: Context): IntegerType {
+    if (!IntegerType.i8) {
+      IntegerType.i8 = new IntegerType(true, 8, c);
+    }
+    return IntegerType.i8;
+  }
+
+  static getI16Type(c: Context): IntegerType {
+    if (!IntegerType.i16) {
+      IntegerType.i16 = new IntegerType(true, 16, c);
+    }
+    return IntegerType.i16;
+  }
+  static getI32Type(c: Context): IntegerType {
+    if (!IntegerType.i32) {
+      IntegerType.i32 = new IntegerType(true, 32, c);
+    }
+    return IntegerType.i32;
+  }
+  static getI64Type(c: Context): IntegerType {
+    if (!IntegerType.i64) {
+      IntegerType.i64 = new IntegerType(true, 64, c);
+    }
+    return IntegerType.i64;
+  }
+  static getU8Type(c: Context): IntegerType {
+    if (!IntegerType.u8) {
+      IntegerType.u8 = new IntegerType(false, 8, c);
+    }
+    return IntegerType.u8;
+  }
+  static getU16Type(c: Context): IntegerType {
+    if (!IntegerType.u16) {
+      IntegerType.u16 = new IntegerType(false, 16, c);
+    }
+    return IntegerType.u16;
+  }
+  static getU32Type(c: Context): IntegerType {
+    if (!IntegerType.u32) {
+      IntegerType.u32 = new IntegerType(false, 32, c);
+    }
+    return IntegerType.u32;
+  }
+  static getU64Type(c: Context): IntegerType {
+    if (!IntegerType.u64) {
+      IntegerType.u64 = new IntegerType(false, 64, c);
+    }
+    return IntegerType.u64;
+  }
+
+  private static bool_ty: IntegerType;
+  private static i8: IntegerType;
+  private static i16: IntegerType;
+  private static i32: IntegerType;
+  private static i64: IntegerType;
+  private static u8: IntegerType;
+  private static u16: IntegerType;
+  private static u32: IntegerType;
+  private static u64: IntegerType;
 }
 
 class Float32Type extends Type {
-  private constructor() {
-    super(TypeID.TyFloat32);
+  private constructor(c: Context) {
+    super(TypeID.TyFloat32, c);
   }
 
   getBitWidth(): number {
@@ -238,11 +312,19 @@ class Float32Type extends Type {
   getAlignBytes(): number {
     return 32;
   }
+
+  static getInstance(context: Context): Float32Type {
+    if (!Float32Type.instance) {
+      Float32Type.instance = new Float32Type(context);
+    }
+    return Float32Type.instance;
+  }
+  private static instance: Float32Type;
 }
 
 class Float64Type extends Type {
-  private constructor() {
-    super(TypeID.TyFloat64);
+  private constructor(c: Context) {
+    super(TypeID.TyFloat64, c);
   }
 
   getBitWidth(): number {
@@ -251,14 +333,21 @@ class Float64Type extends Type {
   getAlignBytes(): number {
     return 64;
   }
+  static getInstance(context: Context): Float64Type {
+    if (!Float64Type.instance) {
+      Float64Type.instance = new Float64Type(context);
+    }
+    return Float64Type.instance;
+  }
+  private static instance: Float64Type;
 }
 
 class PtrType extends Type {
   private ele_ty: Type;
   private ptr_width_bits: number;
 
-  private constructor(ty: Type) {
-    super(TypeID.TyPtr);
+  private constructor(ty: Type, c: Context) {
+    super(TypeID.TyPtr, c);
     this.ele_ty = ty;
     this.ptr_width_bits = 0;  // FIXME ...target related
   }
@@ -269,17 +358,13 @@ class PtrType extends Type {
   getAlignBytes(): number {
     return this.ptr_width_bits;  // FIXME
   }
-
-  public static createPtrTy(ele: Type): PtrType {
-    return new PtrType(ele);
-  }
 }
 
 class ArrayType extends Type {
   private element_ty: Type;
   private len: number;
-  private constructor(ele: Type, len: number) {
-    super(TypeID.TyArray);
+  private constructor(ele: Type, len: number, c: Context) {
+    super(TypeID.TyArray, c);
     this.element_ty = ele;  // FIXME ...target related
     this.len = len;
   }
@@ -295,8 +380,8 @@ class ArrayType extends Type {
 
 class FunctionType extends Type {
   private types: Type[];
-  private constructor(ty: Type[]) {
-    super(TypeID.TyFunc);
+  private constructor(ty: Type[], c: Context) {
+    super(TypeID.TyFunc, c);
     this.types = ty;
   }
 
@@ -312,13 +397,103 @@ class FunctionType extends Type {
   getReturnType(): Type {
     return this.types[this.types.length - 1];
   }
+}
 
-  static getFnType(ty: Type[]): FunctionType {
-    let f = new FunctionType(ty);
-    return f;
+class TargetInfo {}
+
+// record type info, make sure the type is unique
+// and target machine info
+class Context {
+  private type_set: Set<Type>;
+  private ti: TargetInfo;
+  constructor() {
+    this.type_set = new Set();
+    this.ti = new TargetInfo();
+  }
+
+  add(ty: Type): void {
+    this.type_set.add(ty);
+  }
+
+
+  getVoidType(): VoidType {
+    return VoidType.getInstance(this);
+  }
+  getF32Type(): Float32Type {
+    return Float32Type.getInstance(this);
+  }
+  getF64Type(): Float64Type {
+    return Float64Type.getInstance(this);
+  }
+  getBoolType(): IntegerType {
+    return IntegerType.getBoolType(this);
   }
 }
 
+class Module {
+  private func_list: ilist<Func, Module>;
+  private global_list: ilist<GlobalVariable, Module>;
+  private symbol_map: Map<string, GlobalBase>;
+  private module_name: string;
+  private context: Context;
+  constructor(name: string) {
+    this.module_name = name;
+    this.func_list = new ilist();
+    this.global_list = new ilist();
+    this.symbol_map = new Map();
+    this.context = new Context();
+  }
+
+  createFunction(fname: string, ty: FunctionType): Func {
+    let already = this.getSymbol(fname);
+    if (already.isSome()) {
+      console.error('function already defined');
+    }
+
+    let fn = new Func(fname, ty);
+    this.func_list.push_front(fn);
+    fn.setParent(new Some(this));
+    this.symbol_map.set(fname, fn);
+    return fn;
+  }
+
+  createGlobalVariable(name: string, ty: Type): GlobalVariable {
+    let already = this.getSymbol(name);
+    if (already.isSome()) {
+      console.error('global variable already defined');
+    }
+
+    let gv = new GlobalVariable(name, ty);
+    this.global_list.push_front(gv);
+    gv.setParent(new Some(this));
+    this.symbol_map.set(name, gv);
+    return gv;
+  }
+
+  private getSymbol(name: string): Optional<GlobalBase> {
+    let gv = this.symbol_map.get(name);
+    return optional(gv);
+  }
+
+  getFunction(fname: string): Optional<Func> {
+    let f = this.symbol_map.get(fname);
+    if (f == undefined) return new None();
+    if (f.isFunction()) {
+      return new Some(f as Func);
+    }
+    return new None();
+  }
+  getGlobal(fname: string): Optional<GlobalVariable> {
+    let f = this.symbol_map.get(fname);
+    if (f == undefined || f == null) return new None();
+    if (f.isFunction()) return new None();
+    return new Some(f as GlobalVariable);
+  }
+
+  getContext(): Context {
+    return this.context;
+  }
+}
 
 
 class Value {
@@ -386,23 +561,46 @@ class User extends Value {
   }
 }
 
-class Module {
-  protected func_list: ilist<Func, Module>;
-  protected module_name: string;
-  constructor(name: string) {
-    this.module_name = name;
-    this.func_list = new ilist();
+abstract class GlobalBase extends Value {
+  constructor(name: string, ty: Type) {
+    super(name, ty);
   }
 
-  createFunction(fname: string, ty: FunctionType): Func {
-    let fn = new Func(fname, ty);
-    this.func_list.push_front(fn);
-    fn.setParent(new Some(this));
-    return fn;
+  abstract isFunction(): boolean;
+}
+
+class GlobalVariable extends GlobalBase implements
+    ilist_node_parent_i<GlobalVariable, Module> {
+  protected node: ilist_node_parent<GlobalVariable, Module>;
+  constructor(name: string, ty: Type) {
+    super(name, ty);
+    this.node = new ilist_node_parent();
+  }
+
+  isFunction(): boolean {
+    return false;
+  }
+  getParent(): Optional<Module> {
+    return this.node.getParent();
+  }
+  setParent(p: Optional<Module>): void {
+    this.node.setParent(p);
+  }
+  getNext(): Optional<GlobalVariable> {
+    return this.node.getNext();
+  }
+  getPrev(): Optional<GlobalVariable> {
+    return this.node.getPrev();
+  }
+  setNext(n: Optional<GlobalVariable>): void {
+    this.node.setNext(n);
+  }
+  setPrev(p: Optional<GlobalVariable>): void {
+    this.node.setPrev(p);
   }
 }
 
-class Func extends Value implements ilist_node_parent_i<Func, Module> {
+class Func extends GlobalBase implements ilist_node_parent_i<Func, Module> {
   protected block_list: ilist<BasicBlock, Func>;
   protected node: ilist_node_parent<Func, Module>;
   constructor(name: string, ty: Type) {
@@ -410,6 +608,11 @@ class Func extends Value implements ilist_node_parent_i<Func, Module> {
     this.block_list = new ilist();
     this.node = new ilist_node_parent();
   }
+
+  isFunction(): boolean {
+    return true;
+  }
+
   getParent(): Optional<Module> {
     return this.node.getParent();
   }
@@ -427,6 +630,13 @@ class Func extends Value implements ilist_node_parent_i<Func, Module> {
   }
   setPrev(p: Optional<Func>): void {
     this.node.setPrev(p);
+  }
+
+  getModule(): Optional<Module> {
+    return this.getParent();
+  }
+  getContext(): Optional<Context> {
+    return this.getModule().map((m) => m.getContext());
   }
 }
 
@@ -459,6 +669,13 @@ class BasicBlock extends Value implements
   setPrev(p: Optional<BasicBlock>): void {
     this.node.setPrev(p);
   }
+
+  getFunction(): Optional<Func> {
+    return this.getParent();
+  }
+  getModule(): Optional<Module> {
+    return this.getFunction().flatMap((f) => f.getParent());
+  }
 }
 
 class Instruction extends User implements
@@ -487,6 +704,16 @@ class Instruction extends User implements
   setPrev(p: Optional<Instruction>): void {
     this.node.setPrev(p);
   }
+
+  getFunction(): Optional<Func> {
+    return this.getParent().flatMap((p) => p.getParent());
+  }
+  getModule(): Optional<Module> {
+    return this.getFunction().flatMap((f) => f.getParent());
+  }
+  getContext(): Optional<Context> {
+    return this.getModule().map((m) => m.getContext());
+  }
 }
 
 class UnaryInstruction extends Instruction {
@@ -503,18 +730,17 @@ class BinaryInstruction extends Instruction {
 
 
 enum CmpPredict {
-
   I_CMP_BEGIN,
-  I_EQ,
-  I_NQ,
-  I_UGT,
-  I_ULT,
-  I_UGE,
-  I_ULE,
-  I_SGT,
-  I_SLT,
-  I_SGE,
-  I_SLE,
+  I_EQ,   // ==
+  I_NQ,   // !=
+  I_UGT,  // > unsigned
+  I_ULT,  // < unsigned
+  I_UGE,  // >= unsigned
+  I_ULE,  // <= unsigned
+  I_SGT,  // > signed
+  I_SLT,  // < signed
+  I_SGE,  // >= signed
+  I_SLE,  // <= signed
   I_CMP_END,
 
   F_CMP_BEGIN,
@@ -536,7 +762,7 @@ class CmpInst extends Instruction {
   protected predict: CmpPredict;
 
   constructor(name: string, p: CmpPredict, a: Value, b: Value) {
-    super(name, IntegerType.getBoolType(), [a, b]);
+    super(name, , [a, b]);
     this.predict = p;
   }
 }
@@ -719,15 +945,14 @@ class CondJumpInstruction extends TerminateInstruction {
 }
 
 class ReturnInstruction extends TerminateInstruction {
-  protected val: Optional<Value>;
-  constructor(val: Optional<Value>) {
-    super('', val.map((v) => v.getType()).unwrapOr(VoidType.getVoidType()));
-    this.val = val;
+  constructor(name: string, val: Optional<Value>) {
+    if (val.isSome()) {
+      super(name, val.unwrap().getType(), [val.unwrap()]);
+    } else {
+      super(name, VoidType.getVoidType(), []);
+    }
   }
 
-  override getOperands(): Value[] {
-    return this.val.map((v) => [v]).unwrapOr([]);
-  }
   override getSuccessors(): BasicBlock[] {
     return [];
   }
@@ -741,8 +966,8 @@ class ReturnInstruction extends TerminateInstruction {
 /// blocks: [default, bb1, bb2, ... ]
 class SwitchInstruction extends TerminateInstruction {
   protected blocks: BasicBlock[];
-  constructor(values: Value[], bbs: BasicBlock[]) {
-    super('', VoidType.getVoidType(), values);
+  constructor(name: string, values: Value[], bbs: BasicBlock[]) {
+    super(name, VoidType.getVoidType(), values);
     this.blocks = bbs;
   }
 
