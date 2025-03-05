@@ -205,15 +205,12 @@ class VoidType extends Type {
   }
 
   static getInstance(context: Context): VoidType {
-    let t = context.getVoidType();
-    return t;
-  }
-  protected static create(context: Context): VoidType {
     if (!VoidType.instance) {
       VoidType.instance = new VoidType(context);
     }
     return VoidType.instance;
   }
+
   private static instance: VoidType;
 }
 
@@ -385,6 +382,7 @@ class ArrayType extends Type {
   }
 }
 
+/// fn: A -> B -> C means (A, B):C
 class FunctionType extends Type {
   private types: Type[];
   private constructor(ty: Type[], c: Context) {
@@ -406,6 +404,10 @@ class FunctionType extends Type {
   }
 
   static getCreateFuncType(c: Context, ty: Type[]): FunctionType {
+    if (ty.length < 1) {
+      console.error('function type should have at least one type void');
+    }
+
     let fty = new FunctionType(ty, c);
     if (c.has(fty)) return c.addFuncType(fty);
     c.add(fty);
@@ -1014,10 +1016,31 @@ class SwitchInstruction extends TerminateInstruction {
   }
 }
 
+class IRBuilder {
+  private current_bb: Optional<BasicBlock>;
+  constructor(bb: Optional<BasicBlock>) {
+    this.current_bb = bb;
+  }
+
+  clear(): void {
+    this.current_bb = new None();
+  }
+  getInsertPoint(): Optional<BasicBlock> {
+    return this.current_bb;
+  }
+  setInsertPoint(bb: BasicBlock): void {
+    this.current_bb = optional(bb);
+  }
+
+  // create instruction ...
+}
+
 
 let mod = new Module('test');
 let f = mod.createFunction(
-    'foo', FunctionType.getCreateFuncType(mod.getContext(), []));
+    'foo',
+    FunctionType.getCreateFuncType(
+        mod.getContext(), [mod.getContext().getVoidType()]));
 
 
 console.log(mod);
