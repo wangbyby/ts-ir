@@ -324,7 +324,7 @@ class FunctionType extends Type {
 class Value {
   private name: string;
   private ty: Type;
-  private uses: Value[];
+  private uses: User[];
   constructor(name: string, ty: Type) {
     this.name = name;
     this.ty = ty;
@@ -337,6 +337,52 @@ class Value {
 
   public getType(): Type {
     return this.ty;
+  }
+
+  /// replace all uses of this into val
+  public replaceAllUseOf(val: Value): void {
+    while (this.uses.length > 0) {
+      let u = this.uses.pop();
+      if (u == undefined) break;
+      u.replaceOperand(this, val);
+    }
+  }
+  public addUser(u: User): void {
+    let i = this.uses.find((v) => v == u);
+    if (i != undefined) return;
+    this.uses.push(u);
+  }
+}
+
+class User extends Value {
+  protected operands: Value[];
+  constructor(name: string, ty: Type, ops: Value[]) {
+    super(name, ty);
+    this.operands = ops;
+  }
+
+
+  replaceOperand(old: Value, new_val: Value): void {
+    for (let i = 0; i < this.operands.length; i++) {
+      if (this.operands[i] == old) {
+        this.operands[i] = new_val;
+        new_val.addUser(this);
+      }
+    }
+  }
+
+  setOperand(idx: number, val: Value): void {
+    this.operands[idx] = val;
+  }
+  getOperand(idx: number): Value {
+    return this.operands[idx];
+  }
+  getNumOperands(): number {
+    return this.getOperands().length;
+  }
+
+  getOperands(): Value[] {
+    return this.operands;
   }
 }
 
@@ -415,11 +461,11 @@ class BasicBlock extends Value implements
   }
 }
 
-class Instruction extends Value implements
+class Instruction extends User implements
     ilist_node_parent_i<Instruction, BasicBlock> {
   protected node: ilist_node_parent<Instruction, BasicBlock>;
-  constructor(name: string, ty: Type) {
-    super(name, ty);
+  constructor(name: string, ty: Type, op: Value[]) {
+    super(name, ty, op);
     this.node = new ilist_node_parent();
   }
 
@@ -441,27 +487,17 @@ class Instruction extends Value implements
   setPrev(p: Optional<Instruction>): void {
     this.node.setPrev(p);
   }
-
-  getOperands(): Value[] {
-    return [];
-  }
 }
 
 class UnaryInstruction extends Instruction {
-  protected op: Value;
   constructor(name: string, ty: Type, op: Value) {
-    super(name, ty);
-    this.op = op;
+    super(name, ty, [op]);
   }
 }
 
 class BinaryInstruction extends Instruction {
-  protected op0: Value;
-  protected op1: Value;
   constructor(name: string, ty: Type, op0: Value, op1: Value) {
-    super(name, ty);
-    this.op0 = op0;
-    this.op1 = op1;
+    super(name, ty, [op0, op1]);
   }
 }
 
@@ -498,109 +534,187 @@ namespace CmpPredict {
 
 class CmpInst extends Instruction {
   protected predict: CmpPredict;
-  constructor(name: string, p: CmpPredict) {
-    super(name, IntegerType.getBoolType());
+
+  constructor(name: string, p: CmpPredict, a: Value, b: Value) {
+    super(name, IntegerType.getBoolType(), [a, b]);
     this.predict = p;
   }
-
 }
 
 class ICmpInst extends CmpInst {
-  protected a: Value;
-  protected b: Value;
-
   constructor(name: string, p: CmpPredict, a: Value, b: Value) {
-    super(name, p);
-    this.a = a;
-    this.b = b;
+    if (!CmpPredict.isValidICmp(p)) throw new Error('invalid cmp predict');
+    super(name, p, a, b);
   }
 }
 
-class FCmpInst extends CmpInst {}
+class FCmpInst extends CmpInst {
+  constructor(name: string, p: CmpPredict, a: Value, b: Value) {
+    if (!CmpPredict.isValidFCmp(p)) throw new Error('invalid cmp predict');
+    super(name, p, a, b);
+  }
+}
 
 class AllocInstruction extends Instruction {
   protected ele_num: Optional<Value>;
   protected ele_ty: Type;
   constructor(name: string, ele_num: Optional<Value>, ele_ty: Type) {
-    super(name, PtrType.createPtrTy(ele_ty));
+    super(name, PtrType.createPtrTy(ele_ty), []);
     this.ele_num = ele_num;
     this.ele_ty = ele_ty;
   }
 }
 
-class LoadInstruction extends Instruction {
-  protected address: Value;
-  constructor(name: string, ty: Type, address: Value) {
-    super(name, ty);
-    this.address = address;
+class MemoryAccess {
+  protected is_volatile: boolean;
+  protected is_atomic: boolean;
+  protected is_align: boolean;
+  constructor() {
+    this.is_volatile = false;
+    this.is_atomic = false;
+    this.is_align = false;
+  }
+
+  setVolatile(): void {
+    this.is_volatile = true;
+  }
+  setAtomic(): void {
+    this.is_atomic = true;
+  }
+  setAlign(): void {
+    this.is_align = true;
+  }
+
+  getVolatile(): boolean {
+    return this.is_volatile;
+  }
+  getAtomic(): boolean {
+    return this.is_atomic;
+  }
+  getAlign(): boolean {
+    return this.is_align;
   }
 }
 
+class LoadInstruction extends Instruction {
+  protected mem_access: MemoryAccess;
+  constructor(name: string, ty: Type, address: Value) {
+    super(name, ty, [address]);
+    this.mem_access = new MemoryAccess();
+  }
+
+  setVolatile(): LoadInstruction {
+    this.mem_access.setVolatile();
+    return this;
+  }
+  setAtomic(): LoadInstruction {
+    this.mem_access.setAtomic();
+    return this;
+  }
+  setAlign(): LoadInstruction {
+    this.mem_access.setAlign();
+    return this;
+  }
+  isVolatile(): boolean {
+    return this.mem_access.getVolatile();
+  }
+  isAtomic(): boolean {
+    return this.mem_access.getAtomic();
+  }
+  isAlign(): boolean {
+    return this.mem_access.getAlign();
+  }
+
+  getAddress(): Value {
+    return this.getOperand(0);
+  }
+}
+
+/// store val -> address.
 class StoreInstruction extends Instruction {
-  protected val: Value;
-  protected address: Value;
+  protected mem_access: MemoryAccess;
 
   constructor(name: string, ty: Type, val: Value, address: Value) {
-    super(name, ty);
-    this.val = val;
-    this.address = address;
+    super(name, ty, [val, address]);
+    this.mem_access = new MemoryAccess();
+  }
+
+  getAddress(): Value {
+    return this.getOperand(1);
+  }
+  getValue(): Value {
+    return this.getOperand(0);
+  }
+
+  isVolatile(): boolean {
+    return this.mem_access.getVolatile();
+  }
+  isAtomic(): boolean {
+    return this.mem_access.getAtomic();
+  }
+  isAlign(): boolean {
+    return this.mem_access.getAlign();
+  }
+
+  setVolatile(): StoreInstruction {
+    this.mem_access.setVolatile();
+    return this;
+  }
+  setAtomic(): StoreInstruction {
+    this.mem_access.setAtomic();
+    return this;
+  }
+  setAlign(): StoreInstruction {
+    this.mem_access.setAlign();
+    return this;
   }
 }
 
 class PhiInstruction extends Instruction {
-  protected incoming_vals: Value[];
   protected incoming_blocks: BasicBlock[];
   constructor(
       name: string, ty: Type, incoming_vals: Value[],
       incoming_blocks: BasicBlock[]) {
-    super(name, ty);
-    this.incoming_vals = incoming_vals;
+    super(name, ty, incoming_vals);
     this.incoming_blocks = incoming_blocks;
   }
 }
 
 class CallInstruction extends Instruction {
-  protected fn_args: Value[];
   constructor(name: string, ty: Type, fn_args: Value[]) {
-    super(name, ty);
-    this.fn_args = fn_args;
+    super(name, ty, fn_args);
   }
 }
 
-class TerminateInstruction extends Instruction {
-  getSuccessors(): BasicBlock[] {
-    return [];
-  }
+abstract class TerminateInstruction extends Instruction {
+  abstract getSuccessors(): BasicBlock[];
 }
 
 /// jump bb.0
 class UnCondJumpInstruction extends TerminateInstruction {
-  protected tgt: BasicBlock;
   constructor(name: string, tgt: BasicBlock) {
-    super(name, VoidType.getVoidType());
-    this.tgt = tgt;
+    super(name, VoidType.getVoidType(), [tgt]);
   }
 
-  getSuccessors(): BasicBlock[] {
-    return [this.tgt];
+
+  override getSuccessors(): BasicBlock[] {
+    return this.getOperands().map((v) => v as BasicBlock);
+  }
+  getSuccess(): BasicBlock {
+    return this.getOperand(0) as BasicBlock;
   }
 }
 
 // jump cond, bb_t, bb_f
 class CondJumpInstruction extends TerminateInstruction {
-  protected cond: Value;
-  protected true_label: BasicBlock;
-  protected false_label: BasicBlock;
   constructor(
       name: string, cond: Value, true_label: BasicBlock,
       false_label: BasicBlock) {
-    super(name, VoidType.getVoidType());
-    this.cond = cond;
-    this.true_label = true_label;
-    this.false_label = false_label;
+    super(name, VoidType.getVoidType(), [cond, true_label, false_label]);
   }
-  getSuccessors(): BasicBlock[] {
-    return [this.true_label, this.false_label];
+
+  override getSuccessors(): BasicBlock[] {
+    return this.getOperands().slice(-2).map((v) => v as BasicBlock);
   }
 }
 
@@ -611,7 +725,10 @@ class ReturnInstruction extends TerminateInstruction {
     this.val = val;
   }
 
-  getSuccessors(): BasicBlock[] {
+  override getOperands(): Value[] {
+    return this.val.map((v) => [v]).unwrapOr([]);
+  }
+  override getSuccessors(): BasicBlock[] {
     return [];
   }
 }
@@ -623,15 +740,21 @@ class ReturnInstruction extends TerminateInstruction {
 /// values: [cond,      1,   2, ... ]
 /// blocks: [default, bb1, bb2, ... ]
 class SwitchInstruction extends TerminateInstruction {
-  protected values: Value[];
   protected blocks: BasicBlock[];
   constructor(values: Value[], bbs: BasicBlock[]) {
-    super('', VoidType.getVoidType());
-    this.values = values;
+    super('', VoidType.getVoidType(), values);
     this.blocks = bbs;
   }
 
-  getSuccessors(): BasicBlock[] {
+
+  getCondition(): Value {
+    return this.getOperand(0);
+  }
+  getDefaultBlock(): BasicBlock {
+    return this.blocks[0];
+  }
+
+  override getSuccessors(): BasicBlock[] {
     return this.blocks;
   }
 }
