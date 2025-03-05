@@ -177,6 +177,7 @@ enum TypeID {
   TyPtr = 'ptr',
   TyArray = 'arr',
   TyFunc = 'fn',
+  TyStruct = 'struct'
 }
 
 abstract class Type {
@@ -413,6 +414,26 @@ class FunctionType extends Type {
     c.add(fty);
     return fty;
   }
+}
+
+class StructType extends Type {
+  private fields: [string, Type][];
+  private is_union: boolean;
+  private constructor(c: Context, is_union: boolean) {
+    super(TypeID.TyStruct, c);
+    this.fields = [];
+    this.is_union = is_union;
+  }
+
+  getBitWidth(): number {
+    console.error('do not call this for struct type');
+    return 0;
+  }
+  getAlignBytes(): number {
+    console.error('TODO');
+    return 0;
+  }
+  
 }
 
 class TargetInfo {}
